@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+echo "==> Running pre-commit checks..."
+
+if git diff --cached --name-only | grep -qE '\.rs$|Cargo\.(toml|lock)$'; then
+
+    echo "--> cargo fmt --check"
+    cargo fmt --all -- --check
+
+    echo "--> cargo clippy"
+    cargo clippy --all-targets -- -D warnings
+
+    echo "--> cargo test"
+    cargo test
+
+else
+    echo "--> No Rust changes staged, skipping."
+fi
+
+echo "==> Pre-commit checks passed."
