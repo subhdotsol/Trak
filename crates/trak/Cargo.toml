@@ -1,0 +1,17 @@
+[package]
+name = "trak"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+clap = {version="4.6.7" , features =["derive"]}
+sigpipe = "0.1"
+trak-core = {path = "../trak-core"}
+trak-search =  {path ="../trak-search"}
+trak-analysis ={path="../trak-analysis"}
+trak-rust = {path="../trak-rust"}
+trak-git = {path="../trak-git"}
+trak-output = {path="../trak-output"}
+trak-editor = {path="../trak-editor"}

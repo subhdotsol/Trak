@@ -1,0 +1,54 @@
+use std::collections::HashSet;
+
+use trak_analysis::callers;
+use trak_core::{Error, Repository};
+use trak_rust::functions;
+
+pub fn run(name: &str, format: trak_output::Format, tree: bool) -> Result<(), Error> {
+    let repo = Repository::discover()?;
+    let all = functions(&repo)?;
+    let found = callers(&all, name);
+
+    if tree {
+        println!("{name}");
+        let mut visited = HashSet::new();
+        print_tree(&all, name, 0, &mut visited);
+        return Ok(());
+    }
+
+    if found.is_empty() {
+        println!("no callers of `{name}`");
+        return Ok(());
+    }
+
+    let mut report = trak_output::Report::new(format!("callers of `{name}`"));
+    report.summary(format!("{} caller(s)", found.len()));
+    for f in &found {
+        report.hit(
+            repo.display_path(&f.file),
+            f.line,
+            f.signature.clone(),
+            Some("caller"),
+            Some(f.file.display().to_string()),
+        );
+        report.node(f.name.clone(), f.signature.clone(), Some("fn"));
+        report.edge(f.name.clone(), name.to_string());
+    }
+    print!("{}", report.render(format));
+    Ok(())
+}
+
+fn print_tree(
+    functions: &[trak_core::Function],
+    name: &str,
+    depth: usize,
+    visited: &mut HashSet<String>,
+) {
+    for caller in callers(functions, name) {
+        if !visited.insert(caller.name.clone()) {
+            continue;
+        }
+        println!("{}└─ {}", "   ".repeat(depth), caller.name);
+        print_tree(functions, &caller.name, depth + 1, visited);
+    }
+}
