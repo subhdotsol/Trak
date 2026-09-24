@@ -1,0 +1,19 @@
+[workspace]
+resolver="3"
+
+members =[
+    "crates/trak",
+    "crates/trak-core",
+    "crates/trak-rust",
+    "crates/trak-analysis",
+    "crates/trak-search",
+    "crates/trak-git",
+    "crates/trak-output",
+    "crates/trak-editor"
+]
+
+[workspace.package]
+version="0.1.0"
+edition="2024"
+license="MIT"
+repository="https://github.com/subhdotsol/trak"
