@@ -7,3 +7,7 @@ repository.workspace = true
 
 [dependencies]
 trak-core = {path = "../trak-core"}
+ignore = "0.4"
+grep-regex = "0.1"
+grep-searcher = "0.1"
+regex = "1"
