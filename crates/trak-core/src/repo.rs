@@ -40,6 +40,23 @@ impl Repository {
     pub fn root(&self) -> &Path {
         &self.root
     }
+
+    /// Render `path` relative to the repository root for display. Paths
+    /// inside the repo become `./relative`; anything else keeps its absolute
+    /// form.
+    pub fn display_path(&self, path: &Path) -> String {
+        match path.strip_prefix(&self.root) {
+            Ok(relative) => {
+                let shown = relative.display().to_string();
+                if shown.is_empty() {
+                    "./".to_string()
+                } else {
+                    format!("./{shown}")
+                }
+            }
+            Err(_) => path.display().to_string(),
+        }
+    }
 }
 
 /// Directories that are never traversed.

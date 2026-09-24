@@ -27,6 +27,9 @@ pub struct Report {
     pub hits: Vec<Hit>,
     pub nodes: Vec<Node>,
     pub edges: Vec<Edge>,
+    /// Term that, when set, is highlighted (terminal only).
+    #[serde(skip_serializing)]
+    pub highlight: Option<String>,
 }
 
 /// A plain `file:line` item with optional text.
@@ -38,6 +41,9 @@ pub struct Hit {
     /// E.g. "definition", "caller" — omitted in JSON when unknown.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
+    /// Absolute path used for terminal hyperlinks (click-to-open).
+    #[serde(skip_serializing)]
+    pub href: Option<String>,
 }
 
 /// A graph node (used for the call/architecture graph).
@@ -71,18 +77,26 @@ impl Report {
         self
     }
 
+    /// Set the term that the terminal renderer highlights in hit text.
+    pub fn highlight(&mut self, term: impl Into<String>) -> &mut Self {
+        self.highlight = Some(term.into());
+        self
+    }
+
     pub fn hit(
         &mut self,
         file: impl Into<String>,
         line: usize,
         text: impl Into<String>,
         kind: Option<&str>,
+        href: Option<String>,
     ) -> &mut Self {
         self.hits.push(Hit {
             file: file.into(),
             line,
             text: text.into(),
             kind: kind.map(str::to_string),
+            href,
         });
         self
     }
