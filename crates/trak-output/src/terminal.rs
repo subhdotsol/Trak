@@ -13,6 +13,27 @@ fn colors_enabled() -> bool {
     std::env::var_os("NO_COLOR").is_none() && std::io::stdout().is_terminal()
 }
 
+/// True when the report is a single linear call chain: no branches, every
+/// node is on the path, and each hop links to the next. Used so `path` renders
+/// one inline `a → b → c` line instead of duplicating it as nodes + edges.
+fn is_linear_chain(nodes: &[crate::Node], edges: &[crate::Edge]) -> bool {
+    if nodes.is_empty() || edges.is_empty() {
+        return false;
+    }
+    let ids: std::collections::HashSet<&str> = nodes.iter().map(|n| n.id.as_str()).collect();
+    let mut chain = Vec::with_capacity(edges.len() + 1);
+    for edge in edges {
+        if chain.is_empty() {
+            chain.push(edge.from.clone());
+        } else if chain.last() != Some(&edge.from) {
+            return false; // two edges leaving the same node ⇒ a branch
+        }
+        chain.push(edge.to.clone());
+    }
+    let chain_ids: std::collections::HashSet<&str> = chain.iter().map(|s| s.as_str()).collect();
+    chain_ids == ids && chain.len() == ids.len()
+}
+
 /// Percent-encode a path so it is a valid `file://` URI for OSC 8 hyperlinks.
 fn encode_path(path: &str) -> String {
     let mut out = String::new();
@@ -119,6 +140,24 @@ pub fn render(report: &Report) -> String {
                 out.push('\n');
             }
         }
+    }
+
+    if !report.edges.is_empty() && is_linear_chain(&report.nodes, &report.edges) {
+        // A single linear call chain (e.g. `path`): render it once as an
+        // inline `a → b → c` line instead of duplicating it as a node list
+        // plus one edge line per hop.
+        let mut line = String::new();
+        for (i, edge) in report.edges.iter().enumerate() {
+            if i == 0 {
+                line.push_str(&edge.from);
+            }
+            line.push_str(" → ");
+            line.push_str(&edge.to);
+        }
+        out.push('\n');
+        out.push_str(&line);
+        out.push('\n');
+        return out;
     }
 
     if !report.nodes.is_empty() {

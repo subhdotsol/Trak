@@ -12,7 +12,7 @@ pub fn run(name: &str, format: trak_output::Format, tree: bool) -> Result<(), Er
     if tree {
         println!("{name}");
         let mut visited = HashSet::new();
-        print_tree(&all, name, 0, &mut visited);
+        print_tree(&all, name, "", &mut visited);
         return Ok(());
     }
 
@@ -41,14 +41,20 @@ pub fn run(name: &str, format: trak_output::Format, tree: bool) -> Result<(), Er
 fn print_tree(
     functions: &[trak_core::Function],
     name: &str,
-    depth: usize,
+    prefix: &str,
     visited: &mut HashSet<String>,
 ) {
-    for caller in callers(functions, name) {
-        if !visited.insert(caller.name.clone()) {
-            continue;
-        }
-        println!("{}└─ {}", "   ".repeat(depth), caller.name);
-        print_tree(functions, &caller.name, depth + 1, visited);
+    let callers = callers(functions, name);
+    let pending: Vec<_> = callers
+        .iter()
+        .filter(|c| visited.insert(c.name.clone()))
+        .collect();
+    let total = pending.len();
+    for (i, caller) in pending.into_iter().enumerate() {
+        let last = i + 1 == total;
+        let branch = if last { "└─ " } else { "├─ " };
+        println!("{prefix}{branch}{}", caller.name);
+        let child_prefix = format!("{prefix}{}", if last { "   " } else { "│  " });
+        print_tree(functions, &caller.name, &child_prefix, visited);
     }
 }
