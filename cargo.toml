@@ -2,7 +2,7 @@
 resolver="3"
 
 members =[
-    # "crates/trak",
+    "crates/trak",
     "crates/trak-core",
     "crates/trak-rust",
     "crates/trak-analysis",
