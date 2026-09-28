@@ -9,7 +9,7 @@ Trak: find it. Follow it. Understand it.
 - Text search across the whole repository
 - Symbol lookup for structs, enums, traits, impls, and functions
 - Caller and callee tracking for any function
-- Shortest path between two functions in the call graph
+- Shortest path between two functions in the call graph, or the path to the function that logged a message you paste from the terminal
 - Impact analysis: what breaks if you change a function
 - Reference lookup for any symbol
 - Repository architecture overview
@@ -63,11 +63,25 @@ trak fn main                # signature, parameters, and calls of main
 trak callers parse --tree   # reverse call tree up to main
 trak calls parse            # functions that parse calls
 trak path start_fn end_fn   # shortest call path between two functions
+trak path main "no such user" # shortest call path to the function logging that
 trak impact validate        # everything affected by changing validate
 trak refs Point             # every reference to Point
 trak search "TODO"          # repository-wide text search
 trak open main              # open main in your editor
 ```
+
+The graph commands only follow functions the repository itself defines. A call
+counts when it resolves into this repository — written on a `crate`, `self`,
+`super`, module or type path, or imported from a crate in this workspace:
+
+```
+crate::ui::render(..)   edge        input.trim(..)          not an edge
+self.render(..)         edge        console::style(..)      not an edge
+use sibling::paint;             → sibling::paint(..)    edge
+```
+
+So std and third-party calls (`unwrap`, `read_line`, `to_ascii_lowercase`) never
+show up as edges, even when the repository happens to define its own `trim`.
 
 ## Command reference
 
@@ -79,7 +93,7 @@ trak open main              # open main in your editor
 | `callers <name>` | Find functions that call this function |
 | `callers <name> --tree` | Render the reverse call tree instead |
 | `calls <name>` | Find the functions called by this function |
-| `path <from> <to>` | Find the shortest call path between two functions |
+| `path <from> <to>` | Find the shortest call path between two functions, or to a log message |
 | `refs <name>` | Find every reference to a symbol |
 | `impact <name>` | Analyze what changing a function would affect |
 | `architecture` | Show the repository architecture |

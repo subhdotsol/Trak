@@ -21,7 +21,7 @@ trak <command> <args...>
 | `calls` | What does this function call? | `trak calls discover` |
 | `callers` | Which functions call it? (`--tree` for reverse tree) | `trak callers from_dir` |
 | `callers --tree` | Full callers hierarchy as a tree | `trak callers from_dir --tree` |
-| `path` | Is there a call chain A→…→B? | `trak path main discover` |
+| `path` | Is there a call chain A→…→B? Or the route to a log message? | `trak path main discover` |
 | `refs` | Every reference (definition + call sites) to a symbol | `trak refs format_number` |
 | `impact` | If I change this fn, what breaks? (transitive callers) | `trak impact discover` |
 | `relevant` | Containing fn + callers/callees that touch this text | `trak relevant from_dir` |
@@ -93,8 +93,8 @@ trak fn discover
 ```
 
 What you'll get: where it's defined plus the call edges **to functions this
-codebase itself defines** — std/library calls like `current_dir` are pruned, so
-you only ever see the team's own code:
+codebase itself defines** — std/library calls like `unwrap` or `read_line` are
+pruned, so you only ever see the team's own code:
 
 ```
 fn `discover`
@@ -104,6 +104,12 @@ fn `discover`
 
 discover → from_dir
 ```
+
+A call is kept when it resolves into this repository, so `crate::ui::render(..)`
+and `self.render(..)` are edges while `input.trim(..)` is not — even if this
+codebase defines its own `trim`. A name imported from another crate in the
+workspace is an edge, including under its alias (`use sibling::paint as draw`
+records `paint`), and one imported from outside is not.
 
 Args / flags: `<name>` (required) · `--format`.
 
@@ -148,8 +154,12 @@ trak callers from_dir --tree
 What you'll get: every path back to `main`, as a tree:
 
 ```
-discover
-  └─ main
+from_dir
+└─ discover
+   ├─ run
+   │  ├─ main
+   │  └─ search
+   └─ run_context
 ```
 
 Args / flags: `<name>` (required) · `--tree` (render a tree instead of a flat
@@ -159,6 +169,7 @@ list) · `--format`.
 
 ```sh
 trak path main discover
+trak path main "failed to read input: {error}"
 ```
 
 What you'll get: the shortest repo-defined call path (or `no path`):
@@ -167,8 +178,27 @@ What you'll get: the shortest repo-defined call path (or `no path`):
 main → run → discover
 ```
 
-Args / flags: `<from>` and `<to>` — both function names (required) · order
-matters (direction of calls) · `--format`.
+Either endpoint may be a function name **or** a message you saw in the logs. A
+message resolves to the function that emits it, so you get the execution path
+to that line:
+
+```
+path from `main` to `failed to read input: {error}`
+2 hop(s)
+
+./src/main.rs
+29: eprintln!("failed to read input: {error}");  [message]
+
+main → deploy → confirm
+```
+
+A `{name}` placeholder you type is matched loosely, so the query above also
+finds a call site that interpolates positionally
+(`"failed to read input: {}"`). When a message is emitted from several
+functions, every reachable route is listed, shortest first.
+
+Args / flags: `<from>` and `<to>` — function names or messages (required) ·
+order matters (direction of calls) · `--format`.
 
 ## 8. refs — every reference to a symbol
 

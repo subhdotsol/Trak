@@ -75,6 +75,7 @@ pub struct Function {
     pub signature: String,
     /// Parameter names extracted from the signature.
     pub params: Vec<String>,
-    /// Smallest unique set of function names called inside the body.
+    /// Smallest unique set of repository-defined function names called inside
+    /// the body. Std and third-party calls are pruned.
     pub calls: Vec<String>,
 }

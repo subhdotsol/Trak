@@ -25,6 +25,14 @@ pub fn render(report: &Report) -> String {
         out.push('\n');
     }
 
+    if !report.chains.is_empty() {
+        out.push_str("### Path\n\n");
+        for chain in &report.chains {
+            out.push_str(&format!("- `{}`\n", chain.join("` → `")));
+        }
+        out.push('\n');
+    }
+
     if !report.edges.is_empty() {
         out.push_str("### Graph\n\n");
         for edge in &report.edges {

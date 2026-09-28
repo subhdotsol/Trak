@@ -20,9 +20,39 @@ const MAX_HITS: usize = 200;
 /// and `grep-searcher` runs the same core matching loop that ripgrep uses, so
 /// large repositories such as the Rust compiler index quickly.
 pub fn search(repo: &Repository, query: &str) -> Result<Vec<(String, usize, String)>> {
+    run(repo, &escape(query))
+}
+
+/// Case-insensitive search for a log or error message, where a `{name}`
+/// placeholder matches any run of characters. Typing the message as it reads in
+/// the source (`failed to read input: {error}`) still finds a call site that
+/// interpolates it positionally (`failed to read input: {}`).
+pub fn search_message(repo: &Repository, message: &str) -> Result<Vec<(String, usize, String)>> {
+    run(repo, &message_pattern(message))
+}
+
+/// Escape `message` into a regex, widening each `{name}` placeholder to match
+/// any text up to the next brace. Everything else is matched literally.
+fn message_pattern(message: &str) -> String {
+    let mut out = String::new();
+    let mut rest = message;
+    while let Some(open) = rest.find('{') {
+        out.push_str(&escape(&rest[..open]));
+        let Some(close) = rest[open..].find('}') else {
+            out.push_str(&escape(&rest[open..]));
+            return out;
+        };
+        out.push_str("[^{}\\n]*");
+        rest = &rest[open + close + 1..];
+    }
+    out.push_str(&escape(rest));
+    out
+}
+
+fn run(repo: &Repository, pattern: &str) -> Result<Vec<(String, usize, String)>> {
     let matcher = RegexMatcherBuilder::new()
         .case_insensitive(true)
-        .build(&escape(query))
+        .build(pattern)
         .map_err(|err| Error::Other(format!("invalid search pattern: {err}")))?;
 
     let shared = Shared::default();
@@ -119,5 +149,45 @@ impl Sink for HitSink<'_> {
                 .push((self.path.display().to_string(), number as usize, text));
         }
         Ok(true)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::message_pattern;
+
+    fn matches(message: &str, candidate: &str) -> bool {
+        let pattern = regex::RegexBuilder::new(&message_pattern(message))
+            .case_insensitive(true)
+            .build()
+            .expect("pattern compiles");
+        pattern.is_match(candidate)
+    }
+
+    #[test]
+    fn plain_messages_match_literally() {
+        assert!(matches(
+            "failed to read input",
+            "eprintln!(\"failed to read input\")"
+        ));
+        assert!(!matches("failed to read input", "read the input file"));
+    }
+
+    #[test]
+    fn placeholders_match_interpolations() {
+        assert!(matches(
+            "failed to read input: {error}",
+            "failed to read input: {}"
+        ));
+        assert!(matches(
+            "failed to read input: {error}",
+            "failed to read input: {e}"
+        ));
+        assert!(!matches("failed to read input: {error}", "failed to read"));
+    }
+
+    #[test]
+    fn unclosed_brace_stays_literal() {
+        assert!(matches("cost is {x", "cost is {x"));
     }
 }

@@ -27,6 +27,9 @@ pub struct Report {
     pub hits: Vec<Hit>,
     pub nodes: Vec<Node>,
     pub edges: Vec<Edge>,
+    /// Ordered call chains, each rendered as one `a → b → c` line. `path` uses
+    /// this so a route keeps its hop order instead of flattening into edges.
+    pub chains: Vec<Vec<String>>,
     /// Term that, when set, is highlighted (terminal only).
     #[serde(skip_serializing)]
     pub highlight: Option<String>,
@@ -125,6 +128,19 @@ impl Report {
             to: to.into(),
             label: None,
         });
+        self
+    }
+
+    /// Record a call chain in hop order. Nodes and edges are added as well so
+    /// the graph formats (mermaid, dot) still render the route.
+    pub fn chain(&mut self, hops: Vec<String>) -> &mut Self {
+        for name in &hops {
+            self.node(name.clone(), name.clone(), Some("fn"));
+        }
+        for pair in hops.windows(2) {
+            self.edge(pair[0].clone(), pair[1].clone());
+        }
+        self.chains.push(hops);
         self
     }
 
