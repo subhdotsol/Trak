@@ -66,8 +66,247 @@ fn name_after_impl(line: &str, toks: &[Token], start: usize) -> Option<String> {
     None
 }
 
+/// Where the scanner sits at a line boundary. Strings, raw strings and block
+/// comments all span lines, so this has to be carried between them; a plain
+/// `bool` could express neither a raw string's hash count nor a comment's depth.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum Scan {
+    #[default]
+    Code,
+    /// Inside a `"..."` that has not closed yet.
+    Str,
+    /// Inside a raw string, holding the hash count its close requires.
+    RawStr(usize),
+    /// Inside `/* */`, holding the nesting depth.
+    Block(u32),
+}
+
+/// Blank out everything on `line` that is not code: string, raw string and char
+/// literal contents, line comments, and block comments. Replacement preserves
+/// byte length, so callers keep using offsets into the original line.
+///
+/// `scan` carries multi-line state and is updated in place.
+fn strip_noncode(line: &str, scan: &mut Scan) -> String {
+    let src = line.as_bytes();
+    let n = src.len();
+    let mut out = src.to_vec();
+    let mut i = 0;
+
+    while i < n {
+        match *scan {
+            Scan::Block(depth) => match block_end(src, i, depth) {
+                Ok(end) => {
+                    blank(&mut out, i, end);
+                    *scan = Scan::Code;
+                    i = end;
+                }
+                Err(deeper) => {
+                    blank(&mut out, i, n);
+                    *scan = Scan::Block(deeper);
+                    break;
+                }
+            },
+            Scan::Str => match string_end(src, i) {
+                Some(end) => {
+                    blank(&mut out, i, end);
+                    *scan = Scan::Code;
+                    i = end;
+                }
+                None => {
+                    blank(&mut out, i, n);
+                    break;
+                }
+            },
+            Scan::RawStr(hashes) => match raw_string_end(src, i, hashes) {
+                Some(end) => {
+                    blank(&mut out, i, end);
+                    *scan = Scan::Code;
+                    i = end;
+                }
+                None => {
+                    blank(&mut out, i, n);
+                    break;
+                }
+            },
+            Scan::Code => match src[i] {
+                // Nothing after a line comment is code.
+                b'/' if i + 1 < n && src[i + 1] == b'/' => {
+                    blank(&mut out, i, n);
+                    break;
+                }
+                b'/' if i + 1 < n && src[i + 1] == b'*' => {
+                    blank(&mut out, i, i + 2);
+                    *scan = Scan::Block(1);
+                    i += 2;
+                }
+                // `'x'` is a literal but `'a` in `&'a str` is a lifetime, and
+                // `'"'` must not be read as opening a string.
+                b'\'' => match char_literal_end(src, i) {
+                    Some(end) => {
+                        blank(&mut out, i, end);
+                        i = end;
+                    }
+                    None => i += 1,
+                },
+                b'"' => match string_end(src, i + 1) {
+                    Some(end) => {
+                        blank(&mut out, i, end);
+                        i = end;
+                    }
+                    None => {
+                        blank(&mut out, i, n);
+                        *scan = Scan::Str;
+                        break;
+                    }
+                },
+                _ => match raw_prefix(src, i) {
+                    Some((body, hashes)) => match raw_string_end(src, body, hashes) {
+                        Some(end) => {
+                            blank(&mut out, i, end);
+                            i = end;
+                        }
+                        None => {
+                            blank(&mut out, i, n);
+                            *scan = Scan::RawStr(hashes);
+                            break;
+                        }
+                    },
+                    None => i += 1,
+                },
+            },
+        }
+    }
+
+    String::from_utf8(out).unwrap_or_else(|_| line.to_string())
+}
+
+/// Overwrite `out[from..to]` with spaces.
+fn blank(out: &mut [u8], from: usize, to: usize) {
+    let to = to.min(out.len());
+    for byte in &mut out[from..to] {
+        *byte = b' ';
+    }
+}
+
+fn is_ident_byte(byte: Option<u8>) -> bool {
+    byte.is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_')
+}
+
+/// The body offset and hash count of a raw string opening at `from`, covering
+/// `r"`, `r#"`, `br"` and `br#"`. `None` when no raw string starts here.
+fn raw_prefix(src: &[u8], from: usize) -> Option<(usize, usize)> {
+    if is_ident_byte(from.checked_sub(1).map(|prev| src[prev])) {
+        return None;
+    }
+    let mut i = from;
+    if src.get(i) == Some(&b'b') {
+        i += 1;
+    }
+    if src.get(i) != Some(&b'r') {
+        return None;
+    }
+    i += 1;
+    let first_hash = i;
+    while src.get(i) == Some(&b'#') {
+        i += 1;
+    }
+    if src.get(i) != Some(&b'"') {
+        return None;
+    }
+    Some((i + 1, i - first_hash))
+}
+
+/// Offset just past a char literal opening at `from`, or `None` when the quote
+/// opens a lifetime (`&'a`, `'static`) instead.
+fn char_literal_end(src: &[u8], from: usize) -> Option<usize> {
+    let n = src.len();
+    let body = from + 1;
+    if body >= n {
+        return None;
+    }
+    if src[body] == b'\\' {
+        // `'\n'`, `'\''`, `'\u{1F600}'`: the escaped byte cannot close it.
+        let mut i = body + 2;
+        while i < n {
+            if src[i] == b'\'' {
+                return Some(i + 1);
+            }
+            i += 1;
+        }
+        return None;
+    }
+    // One whole character, then the closing quote.
+    let close = body + utf8_len(src[body]);
+    (close < n && src[close] == b'\'').then_some(close + 1)
+}
+
+/// Byte length of the UTF-8 character beginning with `lead`.
+fn utf8_len(lead: u8) -> usize {
+    match lead {
+        0x00..0x80 => 1,
+        0x80..0xE0 => 2,
+        0xE0..0xF0 => 3,
+        0xF0.. => 4,
+    }
+}
+
+/// Offset just past the closing quote of a string whose body starts at `from`,
+/// or `None` when the string runs past the end of the line.
+fn string_end(src: &[u8], from: usize) -> Option<usize> {
+    let mut i = from;
+    while i < src.len() {
+        match src[i] {
+            b'\\' => i += 2,
+            b'"' => return Some(i + 1),
+            _ => i += 1,
+        }
+    }
+    None
+}
+
+/// Offset just past the closing `"` plus `hashes` of a raw string whose body
+/// starts at `from`, or `None` when it runs past the end of the line.
+fn raw_string_end(src: &[u8], from: usize, hashes: usize) -> Option<usize> {
+    let n = src.len();
+    let mut i = from;
+    while i < n {
+        if src[i] == b'"' {
+            let after = &src[i + 1..];
+            if after.len() >= hashes && after[..hashes].iter().all(|byte| *byte == b'#') {
+                return Some(i + 1 + hashes);
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Offset just past the `*/` that closes a block comment nested `depth` deep, or
+/// the depth still open when the line ends. Rust block comments nest.
+fn block_end(src: &[u8], from: usize, depth: u32) -> std::result::Result<usize, u32> {
+    let n = src.len();
+    let mut depth = depth;
+    let mut i = from;
+    while i + 1 < n {
+        if src[i] == b'/' && src[i + 1] == b'*' {
+            depth += 1;
+            i += 2;
+        } else if src[i] == b'*' && src[i + 1] == b'/' {
+            depth -= 1;
+            i += 2;
+            if depth == 0 {
+                return Ok(i);
+            }
+        } else {
+            i += 1;
+        }
+    }
+    Err(depth)
+}
+
 /// Try to read an item declaration out of a source line.
 fn parse_symbol_line(line: &str) -> Option<(SymbolKind, String)> {
+    let line = &strip_noncode(line, &mut Scan::default());
     let trimmed = line.trim();
     if trimmed.is_empty()
         || trimmed.starts_with('#')
@@ -148,8 +387,10 @@ pub fn symbols(repo: &Repository) -> Result<Vec<Symbol>> {
 
 fn symbols_in(contents: &str, file: &Path) -> Vec<Symbol> {
     let mut out = Vec::new();
+    let mut scan = Scan::default();
     for (index, line) in contents.lines().enumerate() {
-        if let Some((kind, name)) = parse_symbol_line(line) {
+        let code = strip_noncode(line, &mut scan);
+        if let Some((kind, name)) = parse_symbol_line(&code) {
             out.push(Symbol::new(name, kind, file.to_path_buf(), index + 1));
         }
     }
@@ -164,6 +405,7 @@ struct FnFound {
 
 /// Read a `fn` declaration, capturing the parameter list.
 fn parse_fn(line: &str) -> Option<FnFound> {
+    let line = &strip_noncode(line, &mut Scan::default());
     let toks = tokens(line);
     let bytes = line.as_bytes();
     for (i, tk) in toks.iter().enumerate() {
@@ -915,14 +1157,19 @@ fn functions_in(contents: &str, file: &Path, id: usize, declared: &mut Declared)
     let mut depth = 0i32;
     // A `use` declaration can wrap over several lines; hold it until the `;`.
     let mut use_declaration = String::new();
+    let mut scan = Scan::default();
 
     for (index, line) in contents.lines().enumerate() {
-        let delta = brace_delta(line);
-        if let Some((kind, name)) = parse_symbol_line(line) {
+        // Literals and comments are blanked before anything reads the line, so a
+        // `fn` in a doc comment or a `use` inside a string is not mistaken for
+        // source. Byte offsets are preserved, so `find_calls` is unaffected.
+        let code = strip_noncode(line, &mut scan);
+        let delta = brace_delta(&code);
+        if let Some((kind, name)) = parse_symbol_line(&code) {
             declared.insert(kind, &name, id);
         }
 
-        let trimmed = line.trim_start();
+        let trimmed = code.trim_start();
         if use_declaration.is_empty() && trimmed.starts_with("use ") {
             use_declaration.push_str(trimmed);
         } else if !use_declaration.is_empty() {
@@ -934,7 +1181,7 @@ fn functions_in(contents: &str, file: &Path, id: usize, declared: &mut Declared)
             use_declaration.clear();
         }
 
-        if let Some(found) = parse_fn(line) {
+        if let Some(found) = parse_fn(&code) {
             let function = Function {
                 name: found.name,
                 file: file.to_path_buf(),
@@ -945,7 +1192,7 @@ fn functions_in(contents: &str, file: &Path, id: usize, declared: &mut Declared)
                 calls: Vec::new(),
             };
             let name = function.name.clone();
-            let mut sites = find_calls(line, id);
+            let mut sites = find_calls(&code, id);
             // The declaration line `fn name(` must not count as a self-call.
             sites.retain(|site| site.name != name);
             active.push(ActiveFn {
@@ -953,10 +1200,10 @@ fn functions_in(contents: &str, file: &Path, id: usize, declared: &mut Declared)
                 sites,
                 // The body opens one brace level below the declaration's depth.
                 body_depth: depth + 1,
-                opened: line.contains('{'),
+                opened: code.contains('{'),
             });
         } else if let Some(top) = active.last_mut() {
-            top.sites.extend(find_calls(line, id));
+            top.sites.extend(find_calls(&code, id));
         }
 
         depth += delta;
@@ -1293,5 +1540,151 @@ mod tests {
             "the receiver is the `render(..)` call, not a stray bracket"
         );
         let _ = declared;
+    }
+    #[test]
+    fn a_keyword_table_declares_nothing() {
+        let line = r#"    "else", "enum", "extern", "fn", "for", "if", "impl","#;
+        assert!(parse_fn(line).is_none(), "phantom fn from a string literal");
+        assert_eq!(parse_symbol_line(line), None);
+    }
+
+    #[test]
+    fn a_doc_comment_declares_nothing() {
+        let line = "/// Read a `fn` declaration, capturing the parameter list.";
+        assert!(parse_fn(line).is_none(), "phantom fn from a doc comment");
+    }
+
+    #[test]
+    fn a_trailing_comment_declares_nothing() {
+        let line = "    depth += delta; // the `fn name(` line must not self-call";
+        assert!(
+            parse_fn(line).is_none(),
+            "phantom fn from a trailing comment"
+        );
+        assert_eq!(parse_symbol_line(line), None);
+    }
+
+    #[test]
+    fn a_signature_inside_a_string_declares_nothing() {
+        let line = r#"            signature: "fn parse() {".to_string(),"#;
+        assert!(parse_fn(line).is_none(), "phantom fn from a string literal");
+    }
+
+    #[test]
+    fn a_struct_named_in_a_string_declares_nothing() {
+        assert_eq!(
+            parse_symbol_line(r#"    let src = "struct Point { x: u8 }";"#),
+            None
+        );
+    }
+
+    #[test]
+    fn real_declarations_still_parse() {
+        assert_eq!(
+            parse_fn("pub fn discover() -> crate::Result<Self> {")
+                .unwrap()
+                .name,
+            "discover"
+        );
+        // A string elsewhere on the line must not hide a real declaration.
+        let found = parse_fn(r#"fn label(kind: &str) -> &str { "fn" }"#).unwrap();
+        assert_eq!(found.name, "label");
+        assert_eq!(found.params, "kind: &str");
+    }
+
+    #[test]
+    fn raw_strings_declare_nothing() {
+        // A raw string holding quotes is what breaks a plain-string scanner: it
+        // closes on the inner quote and reads the rest as code. Written with
+        // escapes so this line is not itself a raw string.
+        assert!(
+            parse_fn("let line = r#\"  \"a\", \"fn\", \"for\",  \"#;").is_none(),
+            "quotes inside a raw string resynchronised the scanner"
+        );
+        assert_eq!(
+            parse_symbol_line("let t = r#\"  \"x\", \"struct\", \"Point\",  \"#;"),
+            None
+        );
+        // Hashes must match: `"#` inside an `r##"..."##` does not close it.
+        assert!(parse_fn("let q = r##\"a \"# fn inside() {\"##;").is_none());
+        // A bare `r` that is only part of an identifier must not start one.
+        assert_eq!(
+            parse_fn("fn user_repr(r: u8) -> String {").unwrap().name,
+            "user_repr"
+        );
+    }
+
+    #[test]
+    fn a_char_literal_is_not_a_string() {
+        // `'"'` must not open a string: `string_end` would find no close, blank
+        // the rest of the line, and take the line's `{` with it.
+        let stripped = strip_noncode("    if ch == '\"' { go(); }", &mut Scan::default());
+        assert!(stripped.contains('{'), "brace lost: {stripped:?}");
+        assert!(stripped.contains("go"), "call lost: {stripped:?}");
+        // The byte-for-byte contract still holds.
+        assert_eq!(stripped.len(), "    if ch == '\"' { go(); }".len());
+    }
+
+    #[test]
+    fn a_byte_char_literal_is_not_a_string() {
+        let stripped = strip_noncode("        b'\"' => open(),", &mut Scan::default());
+        assert!(stripped.contains("open"), "call lost: {stripped:?}");
+    }
+
+    #[test]
+    fn a_lifetime_is_not_a_char_literal() {
+        let stripped = strip_noncode(
+            "fn f<'a>(x: &'a str) -> &'static str { go(x) }",
+            &mut Scan::default(),
+        );
+        assert!(stripped.contains("go"), "call lost: {stripped:?}");
+        assert_eq!(parse_fn("fn f<'a>(x: &'a str) {").unwrap().name, "f");
+    }
+
+    #[test]
+    fn block_comments_declare_nothing() {
+        let src = "/*\nfn commented_out() {\n    helper();\n}\n*/\nfn real() {}\n";
+        let mut declared = Declared::default();
+        let found = functions_in(src, std::path::Path::new("x.rs"), 0, &mut declared);
+        let names: Vec<&str> = found.iter().map(|c| c.function.name.as_str()).collect();
+        assert_eq!(names, vec!["real"], "block comment leaked a function");
+    }
+
+    #[test]
+    fn nested_block_comments_declare_nothing() {
+        // Rust block comments nest, so the state cannot be a bool.
+        let src = "/* outer\n/* inner */\nfn phantom() {\n    ghost();\n}\n*/\nfn real() {}\n";
+        let mut declared = Declared::default();
+        let found = functions_in(src, std::path::Path::new("x.rs"), 0, &mut declared);
+        let names: Vec<&str> = found.iter().map(|c| c.function.name.as_str()).collect();
+        assert_eq!(names, vec!["real"], "nested comment leaked a function");
+    }
+
+    #[test]
+    fn multi_line_raw_strings_declare_nothing() {
+        // String state must carry across lines the way block-comment state does.
+        let src = "fn holder() {\n    let s = r#\"\nfn phantom() {\n    ghost();\n}\n\"#;\n}\n";
+        let mut declared = Declared::default();
+        let found = functions_in(src, std::path::Path::new("x.rs"), 0, &mut declared);
+        let names: Vec<&str> = found.iter().map(|c| c.function.name.as_str()).collect();
+        assert_eq!(names, vec!["holder"], "raw string leaked a function");
+    }
+
+    #[test]
+    fn a_char_literal_does_not_truncate_its_function() {
+        let src = "fn outer(ch: char) {\n    if ch == '\"' {\n        inner_a();\n    }\n    inner_b();\n}\n";
+        let mut declared = Declared::default();
+        let found = functions_in(src, std::path::Path::new("x.rs"), 0, &mut declared);
+        let outer = found
+            .iter()
+            .find(|c| c.function.name == "outer")
+            .expect("outer not parsed");
+        let called: Vec<&str> = outer.sites.iter().map(|s| s.name.as_str()).collect();
+        assert!(called.contains(&"inner_a"), "{called:?}");
+        assert!(
+            called.contains(&"inner_b"),
+            "brace desync dropped the tail: {called:?}"
+        );
+        assert_eq!(outer.function.end_line, 6, "span closed early");
     }
 }
