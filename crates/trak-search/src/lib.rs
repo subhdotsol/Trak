@@ -9,7 +9,7 @@ use grep_regex::RegexMatcherBuilder;
 use grep_searcher::{MmapChoice, Searcher, SearcherBuilder, Sink, SinkMatch};
 use ignore::{DirEntry, WalkBuilder, WalkState};
 use regex::escape;
-use trak_core::{Error, Repository, Result, SOURCE_EXTENSIONS};
+use trak_core::{Error, Repository, Result, SOURCE_EXTENSIONS, is_fixture_path};
 
 /// Cap on returned hits, matching the previous line-scan implementation.
 const MAX_HITS: usize = 200;
@@ -66,7 +66,7 @@ fn run(repo: &Repository, pattern: &str) -> Result<Vec<(String, usize, String)>>
                 .map(|kind| kind.is_file())
                 .unwrap_or(false);
             let path = entry.into_path();
-            if !is_file || !is_source_path(&path) || shared.is_full() {
+            if !is_file || !is_source_path(&path) || is_fixture_path(&path) || shared.is_full() {
                 return WalkState::Continue;
             }
 
@@ -154,7 +154,8 @@ impl Sink for HitSink<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::message_pattern;
+    use super::{Repository, message_pattern, search};
+    use std::fs;
 
     fn matches(message: &str, candidate: &str) -> bool {
         let pattern = regex::RegexBuilder::new(&message_pattern(message))
@@ -189,5 +190,28 @@ mod tests {
     #[test]
     fn unclosed_brace_stays_literal() {
         assert!(matches("cost is {x", "cost is {x"));
+    }
+    /// Search must skip the same fixture trees the symbol walker skips, or a hit
+    /// inside one arrives with no containing function to report.
+    #[test]
+    fn fixture_trees_are_not_searched() {
+        let root = std::env::temp_dir().join(format!("trak-search-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join(".git")).unwrap();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::create_dir_all(root.join("tests/fixtures/rust/basic/src")).unwrap();
+        fs::write(root.join("src/main.rs"), "let needle = 1;\n").unwrap();
+        fs::write(
+            root.join("tests/fixtures/rust/basic/src/main.rs"),
+            "let needle = 2;\n",
+        )
+        .unwrap();
+
+        let repo = Repository::from_dir(&root).unwrap();
+        let hits = search(&repo, "needle").unwrap();
+        let _ = fs::remove_dir_all(&root);
+
+        assert_eq!(hits.len(), 1, "{hits:?}");
+        assert!(!hits[0].0.contains("fixtures"), "{hits:?}");
     }
 }
