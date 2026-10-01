@@ -1,11 +1,15 @@
-use trak_analysis::{callers, function_by_name};
+use trak_analysis::{callee_tree, caller_tree, callers, function_by_name};
 use trak_core::{Function, Result};
+use trak_editor::Editor;
 
 use super::session::Session;
 use crate::commands::relevant::find_message;
 
 /// How many matches the list shows before it stops.
 const MAX_SHOWN: usize = 20;
+
+/// How many lines of a function body `Show source` prints.
+const MAX_SOURCE_LINES: usize = 60;
 
 /// Where the session currently is.
 pub enum Screen {
@@ -56,7 +60,7 @@ pub fn advance(session: &mut Session, screen: &Screen, input: &str) -> Result<St
     match screen {
         Screen::Query => query_input(session, input),
         Screen::Matches => matches_input(session, input),
-        Screen::Detail(_) => Ok(Step::Note(String::new())),
+        Screen::Detail(function) => detail_input(session, function, input),
     }
 }
 
@@ -181,6 +185,99 @@ fn level(names: &[String]) -> String {
         out.push_str(&format!("    {branch} {name}\n"));
     }
     out
+}
+
+fn detail_input(session: &mut Session, function: &Function, input: &str) -> Result<Step> {
+    match input {
+        "q" | "quit" => Ok(Step::Exit),
+        "b" => Ok(Step::Render(if session.matches.is_empty() {
+            Screen::Query
+        } else {
+            Screen::Matches
+        })),
+        "1" => Ok(Step::Note(source_of(session, function)?)),
+        "2" => {
+            let (_, functions) = session.parsed()?;
+            let names: Vec<String> = callers(functions, &function.name)
+                .iter()
+                .map(|caller| caller.name.clone())
+                .collect();
+            Ok(Step::Note(if names.is_empty() {
+                format!("nothing calls {}", function.name)
+            } else {
+                names.join("\n")
+            }))
+        }
+        "3" => Ok(Step::Note(if function.calls.is_empty() {
+            format!("{} calls nothing in this repository", function.name)
+        } else {
+            function.calls.join("\n")
+        })),
+        "4" => {
+            let (_, functions) = session.parsed()?;
+            let tree = caller_tree(functions, &function.name);
+            Ok(Step::Note(if tree.is_empty() {
+                format!("nothing calls {}", function.name)
+            } else {
+                format!("{}\n{tree}", function.name)
+            }))
+        }
+        "5" => {
+            let (_, functions) = session.parsed()?;
+            let tree = callee_tree(functions, &function.name);
+            Ok(Step::Note(if tree.is_empty() {
+                format!("{} calls nothing in this repository", function.name)
+            } else {
+                format!("{}\n{tree}", function.name)
+            }))
+        }
+        "6" => Ok(Step::Note(open_in_editor(session, function)?)),
+        _ => Ok(Step::Note(
+            "pick 1-6, b to go back, or q to quit".to_string(),
+        )),
+    }
+}
+
+/// The function's own lines, numbered, capped so a large body cannot flood the
+/// terminal.
+fn source_of(session: &mut Session, function: &Function) -> Result<String> {
+    let (repo, _) = session.parsed()?;
+    let shown = repo.display_path(&function.file);
+    let contents = match std::fs::read_to_string(&function.file) {
+        Ok(contents) => contents,
+        Err(err) => return Ok(format!("cannot read {shown}: {err}")),
+    };
+    let lines: Vec<&str> = contents.lines().collect();
+    let start = function.line.saturating_sub(1);
+    let end = function.end_line.min(lines.len());
+    if start >= end {
+        return Ok(format!("{} has no source to show", function.name));
+    }
+
+    let mut out = String::new();
+    for (offset, text) in lines[start..end].iter().take(MAX_SOURCE_LINES).enumerate() {
+        out.push_str(&format!("{:>5}  {text}\n", function.line + offset));
+    }
+    let span = end - start;
+    if span > MAX_SOURCE_LINES {
+        out.push_str(&format!("… {} more lines\n", span - MAX_SOURCE_LINES));
+    }
+    Ok(out)
+}
+
+fn open_in_editor(session: &mut Session, function: &Function) -> Result<String> {
+    let Some(editor) = Editor::detect() else {
+        return Ok(
+            "no editor found (set TRAK_EDITOR, $EDITOR, or install code/zed/nvim/vim)".to_string(),
+        );
+    };
+    let (repo, _) = session.parsed()?;
+    let shown = repo.display_path(&function.file);
+    let target = function.file.display().to_string();
+    Ok(match editor.open(&target, function.line) {
+        Ok(()) => format!("opened {shown}:{} in {}", function.line, editor.name()),
+        Err(err) => format!("failed to open editor: {err}"),
+    })
 }
 
 #[cfg(test)]
@@ -388,5 +485,117 @@ mod tests {
         ] {
             assert!(text.contains(item), "missing {item:?} in {text}");
         }
+    }
+    fn note(s: &mut Session, screen: &Screen, input: &str) -> String {
+        match advance(s, screen, input).unwrap() {
+            Step::Note(msg) => msg,
+            other => panic!("expected a note, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn show_source_prints_numbered_lines_of_the_function() {
+        let mut s = session();
+        let screen = detail_of(&mut s, "read_name");
+        let text = note(&mut s, &screen, "1");
+        assert!(text.contains("fn read_name"), "{text}");
+        assert!(
+            text.contains("   17"),
+            "numbering should start at 17: {text}"
+        );
+        assert!(!text.contains("fn log_empty"), "ran past the span: {text}");
+    }
+
+    #[test]
+    fn show_callers_names_the_caller() {
+        let mut s = session();
+        let screen = detail_of(&mut s, "read_name");
+        assert!(note(&mut s, &screen, "2").contains("setup"));
+    }
+
+    #[test]
+    fn show_callees_reports_an_empty_set_in_words() {
+        let mut s = session();
+        let screen = detail_of(&mut s, "read_name");
+        let text = note(&mut s, &screen, "3");
+        assert!(text.contains("nothing in this repository"), "{text}");
+    }
+
+    #[test]
+    fn show_callees_lists_them_when_there_are_some() {
+        let mut s = session();
+        let screen = detail_of(&mut s, "setup");
+        let text = note(&mut s, &screen, "3");
+        assert!(text.contains("read_name"), "{text}");
+        assert!(text.contains("log_empty"), "{text}");
+    }
+
+    #[test]
+    fn trace_upward_reaches_the_entry_point() {
+        let mut s = session();
+        let screen = detail_of(&mut s, "read_name");
+        let text = note(&mut s, &screen, "4");
+        assert!(text.contains("setup"), "{text}");
+        assert!(text.contains("main"), "{text}");
+    }
+
+    #[test]
+    fn trace_downward_walks_the_callees() {
+        let mut s = session();
+        let screen = detail_of(&mut s, "main");
+        let text = note(&mut s, &screen, "5");
+        assert!(text.contains("setup"), "{text}");
+        assert!(text.contains("read_name"), "{text}");
+    }
+
+    #[test]
+    fn an_unknown_key_explains_the_menu() {
+        let mut s = session();
+        let screen = detail_of(&mut s, "setup");
+        assert!(note(&mut s, &screen, "99").contains("pick 1-6"));
+    }
+
+    #[test]
+    fn b_goes_back_to_the_match_list_when_there_is_one() {
+        let mut s = session();
+        advance(&mut s, &Screen::Query, "failed to read input").unwrap();
+        let screen = match advance(&mut s, &Screen::Matches, "1").unwrap() {
+            Step::Render(screen) => screen,
+            other => panic!("{other:?}"),
+        };
+        assert!(matches!(
+            advance(&mut s, &screen, "b").unwrap(),
+            Step::Render(Screen::Matches)
+        ));
+    }
+
+    #[test]
+    fn b_goes_back_to_the_query_when_there_is_no_list() {
+        let mut s = session();
+        let screen = detail_of(&mut s, "setup");
+        assert!(matches!(
+            advance(&mut s, &screen, "b").unwrap(),
+            Step::Render(Screen::Query)
+        ));
+    }
+
+    #[test]
+    fn q_exits_from_the_detail_screen() {
+        let mut s = session();
+        let screen = detail_of(&mut s, "setup");
+        assert!(matches!(advance(&mut s, &screen, "q").unwrap(), Step::Exit));
+    }
+
+    #[test]
+    fn unreadable_source_is_a_note() {
+        let mut s = session();
+        let mut function = match detail_of(&mut s, "setup") {
+            Screen::Detail(function) => *function,
+            other => panic!("{other:?}"),
+        };
+        function.file = std::path::PathBuf::from("/nonexistent/gone.rs");
+        let screen = Screen::Detail(Box::new(function));
+        let text = note(&mut s, &screen, "1");
+        assert!(text.contains("cannot read"), "{text}");
     }
 }
