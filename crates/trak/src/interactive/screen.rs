@@ -1,4 +1,4 @@
-use trak_analysis::function_by_name;
+use trak_analysis::{callers, function_by_name};
 use trak_core::{Function, Result};
 
 use super::session::Session;
@@ -47,7 +47,7 @@ pub fn render(session: &mut Session, screen: &Screen) -> Result<String> {
             session.files()
         )),
         Screen::Matches => Ok(render_matches(session)),
-        Screen::Detail(_) => Ok(String::new()),
+        Screen::Detail(function) => render_detail(session, function),
     }
 }
 
@@ -138,6 +138,47 @@ fn render_matches(session: &Session) -> String {
     }
     if total > MAX_SHOWN {
         out.push_str(&format!("  … and {} more\n", total - MAX_SHOWN));
+    }
+    out
+}
+
+fn render_detail(session: &mut Session, function: &Function) -> Result<String> {
+    let (repo, functions) = session.parsed()?;
+    let shown = repo.display_path(&function.file);
+    let calling: Vec<String> = callers(functions, &function.name)
+        .iter()
+        .map(|caller| caller.name.clone())
+        .collect();
+
+    Ok(format!(
+        "\n{}()\n\nLocation\n    {shown}:{}-{}\n\nCALLERS\n{}\nCALLEES\n{}\n\
+         [1] Show source     [4] Trace upward\n\
+         [2] Show callers    [5] Trace downward\n\
+         [3] Show callees    [6] Open in editor\n\
+         [b] Back            [q] Quit\n",
+        function.name,
+        function.line,
+        function.end_line,
+        level(&calling),
+        level(&function.calls),
+    ))
+}
+
+/// One level of a call graph as box-drawing lines. Empty renders as `(none)` so
+/// the screen keeps its shape between functions.
+fn level(names: &[String]) -> String {
+    if names.is_empty() {
+        return "    └─ (none)\n".to_string();
+    }
+    let mut out = String::new();
+    let total = names.len();
+    for (index, name) in names.iter().enumerate() {
+        let branch = if index + 1 == total {
+            "└─"
+        } else {
+            "├─"
+        };
+        out.push_str(&format!("    {branch} {name}\n"));
     }
     out
 }
@@ -301,5 +342,51 @@ mod tests {
             advance(&mut s, &Screen::Matches, "q").unwrap(),
             Step::Exit
         ));
+    }
+    fn detail_of(s: &mut Session, name: &str) -> Screen {
+        match advance(s, &Screen::Query, name).unwrap() {
+            Step::Render(screen @ Screen::Detail(_)) => screen,
+            other => panic!("expected Detail({name}), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_detail_screen_shows_the_span_and_both_directions() {
+        let mut s = session();
+        let screen = detail_of(&mut s, "read_name");
+        let text = render(&mut s, &screen).unwrap();
+        assert!(text.contains("read_name()"), "{text}");
+        assert!(text.contains("17-23"), "{text}");
+        assert!(text.contains("CALLERS"), "{text}");
+        assert!(text.contains("setup"), "{text}");
+        assert!(text.contains("CALLEES"), "{text}");
+    }
+
+    #[test]
+    fn a_function_with_no_repository_callees_shows_none() {
+        let mut s = session();
+        let screen = detail_of(&mut s, "read_name");
+        let text = render(&mut s, &screen).unwrap();
+        let callees = text.split("CALLEES").nth(1).expect("a CALLEES section");
+        assert!(callees.contains("(none)"), "{text}");
+    }
+
+    #[test]
+    fn the_detail_screen_lists_the_menu() {
+        let mut s = session();
+        let screen = detail_of(&mut s, "setup");
+        let text = render(&mut s, &screen).unwrap();
+        for item in [
+            "[1] Show source",
+            "[2] Show callers",
+            "[3] Show callees",
+            "[4] Trace upward",
+            "[5] Trace downward",
+            "[6] Open in editor",
+            "[b] Back",
+            "[q] Quit",
+        ] {
+            assert!(text.contains(item), "missing {item:?} in {text}");
+        }
     }
 }
