@@ -144,6 +144,8 @@ pub enum Commands {
         /// Panic message text
         message: String,
     },
+    /// Open an interactive session
+    Interactive,
     /// Open a symbol or function in your editor
     Open {
         /// Symbol or function name

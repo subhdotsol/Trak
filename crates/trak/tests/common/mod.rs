@@ -39,6 +39,12 @@ pub fn run_in(dir: &str, args: &[&str]) -> Output {
 /// interactive tests drive stdin, so it is dead code in the others.
 #[allow(dead_code)]
 pub fn run_with_input(dir: &str, args: &[&str], input: &str) -> Output {
+    run_with_bytes(dir, args, input.as_bytes())
+}
+
+/// As [`run_with_input`], for a script that is not valid UTF-8.
+#[allow(dead_code)]
+pub fn run_with_bytes(dir: &str, args: &[&str], input: &[u8]) -> Output {
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
     let work = std::env::temp_dir().join(format!("trak-test-{}-{}-{id}", std::process::id(), dir));
     let _ = std::fs::remove_dir_all(&work);
@@ -57,7 +63,7 @@ pub fn run_with_input(dir: &str, args: &[&str], input: &str) -> Output {
         .stdin
         .as_mut()
         .expect("stdin was piped")
-        .write_all(input.as_bytes())
+        .write_all(input)
         .expect("failed to write the script to stdin");
 
     child.wait_with_output().expect("failed to run trak binary")

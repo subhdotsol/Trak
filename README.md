@@ -98,15 +98,23 @@ function name. A function name opens straight away; anything else is searched
 for, and the matches are listed with the function that contains each:
 
 ```text
-Repository: trak (71 files)
+Repository: Trak (78 files)
 What are you looking for?
 > failed to read input
 
-2 matches for `failed to read input`
+2 functions for `failed to read input`
   [1] lib.rs:20   read_name()
   [2] lib.rs:26   log_empty()
 > 1
 ```
+
+The count is of functions, not occurrences: a message emitted twice inside one
+function is one entry. Occurrences that sit outside every function are counted
+separately, since nothing calls them.
+
+Bare `trak` opens a session only when stdin is a terminal; off a terminal it
+prints usage, so a script that ran `trak` with no arguments keeps failing fast.
+Use `trak interactive` to drive a session from a pipe.
 
 Choosing one shows where it lives, who calls it, what it calls, and a menu:
 show source, list callers or callees, trace either direction to the end of the

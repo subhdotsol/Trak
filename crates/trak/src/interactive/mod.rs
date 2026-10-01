@@ -7,7 +7,7 @@ mod testing;
 
 use std::io::{self, BufRead, Write};
 
-use trak_core::{Error, Result};
+use trak_core::Result;
 
 use screen::{Screen, Step, advance, render};
 use session::Session;
@@ -33,7 +33,16 @@ pub fn run() -> Result<()> {
         io::stdout().flush().ok();
 
         let Some(line) = lines.next() else { break };
-        let line = line.map_err(Error::Io)?;
+        // A message pasted out of a latin-1 log is not valid UTF-8. That is a
+        // bad line, not a reason to end the session and throw away the parse.
+        let line = match line {
+            Ok(line) => line,
+            Err(_) => {
+                println!("that input was not valid UTF-8");
+                redraw = false;
+                continue;
+            }
+        };
 
         match advance(&mut session, &screen, line.trim())? {
             Step::Render(next) => {

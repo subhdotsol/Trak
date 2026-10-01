@@ -12,6 +12,10 @@ pub struct Session {
     pub query: String,
     /// The emissions the last query found, kept so `b` can go back to them.
     pub matches: Vec<Emission>,
+    /// Occurrences of `query` that sit outside every function. They have no
+    /// call path, so they are counted rather than listed — but counted, not
+    /// dropped, or the total contradicts `trak search`.
+    pub outside: usize,
 }
 
 impl Session {
@@ -37,7 +41,16 @@ impl Session {
             functions: None,
             query: String::new(),
             matches: Vec::new(),
+            outside: 0,
         })
+    }
+
+    /// Forget the last result set, so going back to the query screen cannot
+    /// later return to a list the user has abandoned.
+    pub fn clear_matches(&mut self) {
+        self.query.clear();
+        self.matches.clear();
+        self.outside = 0;
     }
 
     /// The repository's directory name, for the banner.

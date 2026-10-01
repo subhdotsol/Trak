@@ -1,15 +1,20 @@
-use trak_analysis::{callee_tree, caller_tree, callers, function_by_name};
+use trak_analysis::{callee_tree, caller_tree, callers};
 use trak_core::{Function, Result};
 use trak_editor::Editor;
 
 use super::session::Session;
-use crate::commands::relevant::find_message;
+use crate::commands::relevant::{Emission, find_message};
 
 /// How many matches the list shows before it stops.
 const MAX_SHOWN: usize = 20;
 
 /// How many lines of a function body `Show source` prints.
 const MAX_SOURCE_LINES: usize = 60;
+
+/// How many lines of a call tree a trace prints. A wide graph can reach many
+/// thousands, and the menu is not redrawn afterwards, so an uncapped trace
+/// leaves the user at a bare prompt with the screen gone.
+const MAX_TREE_LINES: usize = 200;
 
 /// Where the session currently is.
 pub enum Screen {
@@ -74,12 +79,33 @@ fn query_input(session: &mut Session, input: &str) -> Result<Step> {
 
     // A name the repository defines wins, so typing a function goes straight to
     // it. This is the order `commands/path.rs` already resolves endpoints in.
-    let direct = {
+    // Several functions can share a name, though, so offer the same numbered
+    // choice the message path offers rather than silently picking the first.
+    let defined: Vec<Function> = {
         let (_, functions) = session.parsed()?;
-        function_by_name(functions, input).cloned()
+        functions
+            .iter()
+            .filter(|f| f.name == input)
+            .cloned()
+            .collect()
     };
-    if let Some(function) = direct {
+    if defined.len() == 1 {
+        let function = defined.into_iter().next().expect("one definition");
         return Ok(Step::Render(Screen::Detail(Box::new(function))));
+    }
+    if defined.len() > 1 {
+        session.query = input.to_string();
+        session.outside = 0;
+        session.matches = defined
+            .into_iter()
+            .map(|function| Emission {
+                file: function.file.clone(),
+                line: function.line,
+                text: function.signature.clone(),
+                function,
+            })
+            .collect();
+        return Ok(Step::Render(Screen::Matches));
     }
 
     let found = {
@@ -89,6 +115,7 @@ fn query_input(session: &mut Session, input: &str) -> Result<Step> {
 
     if !found.emissions.is_empty() {
         session.query = input.to_string();
+        session.outside = found.outside.len();
         session.matches = found.emissions;
         return Ok(Step::Render(Screen::Matches));
     }
@@ -109,7 +136,10 @@ fn matches_input(session: &mut Session, input: &str) -> Result<Step> {
     let shown = session.matches.len().min(MAX_SHOWN);
     match input {
         "q" | "quit" => Ok(Step::Exit),
-        "b" => Ok(Step::Render(Screen::Query)),
+        "b" => {
+            session.clear_matches();
+            Ok(Step::Render(Screen::Query))
+        }
         _ => match input.parse::<usize>() {
             Ok(index) if index >= 1 && index <= shown => {
                 let function = session.matches[index - 1].function.clone();
@@ -124,7 +154,9 @@ fn matches_input(session: &mut Session, input: &str) -> Result<Step> {
 
 fn render_matches(session: &Session) -> String {
     let total = session.matches.len();
-    let plural = if total == 1 { "match" } else { "matches" };
+    // "functions", not "matches": find_message deduplicates by containing
+    // function, so a count of matches would not reconcile with `trak search`.
+    let plural = if total == 1 { "function" } else { "functions" };
     let mut out = format!("\n{total} {plural} for `{}`\n", session.query);
     for (index, hit) in session.matches.iter().take(MAX_SHOWN).enumerate() {
         let base = hit
@@ -141,8 +173,33 @@ fn render_matches(session: &Session) -> String {
         ));
     }
     if total > MAX_SHOWN {
-        out.push_str(&format!("  … and {} more\n", total - MAX_SHOWN));
+        out.push_str(&format!(
+            "  … and {} more, not selectable\n",
+            total - MAX_SHOWN
+        ));
     }
+    if session.outside > 0 {
+        let plural = if session.outside == 1 { "" } else { "s" };
+        out.push_str(&format!(
+            "  ({} more occurrence{plural} outside any function, so nothing calls them)\n",
+            session.outside
+        ));
+    }
+    out
+}
+
+/// Trim a rendered tree to [`MAX_TREE_LINES`], noting what was cut.
+fn capped(tree: &str) -> String {
+    let total = tree.lines().count();
+    if total <= MAX_TREE_LINES {
+        return tree.to_string();
+    }
+    let mut out: String = tree
+        .lines()
+        .take(MAX_TREE_LINES)
+        .map(|line| format!("{line}\n"))
+        .collect();
+    out.push_str(&format!("… {} more lines\n", total - MAX_TREE_LINES));
     out
 }
 
@@ -219,7 +276,7 @@ fn detail_input(session: &mut Session, function: &Function, input: &str) -> Resu
             Ok(Step::Note(if tree.is_empty() {
                 format!("nothing calls {}", function.name)
             } else {
-                format!("{}\n{tree}", function.name)
+                format!("{}\n{}", function.name, capped(&tree))
             }))
         }
         "5" => {
@@ -228,7 +285,7 @@ fn detail_input(session: &mut Session, function: &Function, input: &str) -> Resu
             Ok(Step::Note(if tree.is_empty() {
                 format!("{} calls nothing in this repository", function.name)
             } else {
-                format!("{}\n{tree}", function.name)
+                format!("{}\n{}", function.name, capped(&tree))
             }))
         }
         "6" => Ok(Step::Note(open_in_editor(session, function)?)),
@@ -341,7 +398,7 @@ mod tests {
         advance(&mut s, &Screen::Query, "failed to read input").unwrap();
         let text = render(&mut s, &Screen::Matches).unwrap();
         assert!(
-            text.contains("2 matches for `failed to read input`"),
+            text.contains("2 functions for `failed to read input`"),
             "{text}"
         );
         assert!(text.contains("[1] lib.rs:20"), "{text}");
@@ -597,5 +654,123 @@ mod tests {
         let screen = Screen::Detail(Box::new(function));
         let text = note(&mut s, &screen, "1");
         assert!(text.contains("cannot read"), "{text}");
+    }
+    #[test]
+    fn the_header_says_it_counts_functions_not_occurrences() {
+        // find_message dedups by containing function, so "2 matches" for five
+        // occurrences would be a number the user cannot reconcile with
+        // `trak search`. Say what is being counted.
+        let mut s = session();
+        advance(&mut s, &Screen::Query, "failed to read input").unwrap();
+        let text = render(&mut s, &Screen::Matches).unwrap();
+        assert!(text.contains("2 functions"), "{text}");
+        assert!(!text.contains("2 matches"), "{text}");
+    }
+
+    #[test]
+    fn occurrences_outside_a_function_are_reported_alongside_the_list() {
+        // The fixture has `failed to read input` inside two functions. Add a
+        // const holding the same text and the count must mention it rather than
+        // dropping it, which is what consulting `outside` only when `emissions`
+        // is empty used to do.
+        let dir = fixture_copy("messages");
+        let lib = dir.join("src/lib.rs");
+        let mut text = std::fs::read_to_string(&lib).unwrap();
+        text.push_str("\nconst ALSO: &str = \"failed to read input\";\n");
+        std::fs::write(&lib, text).unwrap();
+
+        let mut s = Session::in_dir(&dir).unwrap();
+        advance(&mut s, &Screen::Query, "failed to read input").unwrap();
+        let rendered = render(&mut s, &Screen::Matches).unwrap();
+        assert!(
+            rendered.contains("outside any function"),
+            "the const occurrence vanished: {rendered}"
+        );
+    }
+
+    #[test]
+    fn a_name_with_several_definitions_offers_a_choice() {
+        // `main` is defined once in the fixture; synthesise the ambiguity the
+        // real workspace has, where 17 functions are called `run`.
+        let dir = fixture_copy("messages");
+        let other = dir.join("src/other.rs");
+        std::fs::write(
+            &other,
+            "pub fn setup() {\n    helper();\n}\n\npub fn helper() {}\n",
+        )
+        .unwrap();
+
+        let mut s = Session::in_dir(&dir).unwrap();
+        let step = advance(&mut s, &Screen::Query, "setup").unwrap();
+        assert!(
+            matches!(step, Step::Render(Screen::Matches)),
+            "two definitions of `setup` should offer a choice, got {step:?}"
+        );
+        assert_eq!(s.matches.len(), 2, "{:?}", names(&s));
+    }
+
+    #[test]
+    fn a_name_with_one_definition_still_opens_directly() {
+        let mut s = session();
+        let step = advance(&mut s, &Screen::Query, "read_name").unwrap();
+        match step {
+            Step::Render(Screen::Detail(function)) => assert_eq!(function.name, "read_name"),
+            other => panic!("expected Detail, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_trace_is_capped() {
+        // A chain longer than the cap, so the assertion exercises truncation
+        // rather than passing because the fixture happens to be small.
+        let dir = fixture_copy("messages");
+        let depth = MAX_TREE_LINES + 50;
+        let mut src = String::new();
+        for step in 0..depth {
+            src.push_str(&format!("pub fn deep{step}() {{ deep{}(); }}\n", step + 1));
+        }
+        src.push_str(&format!("pub fn deep{depth}() {{}}\n"));
+        std::fs::write(dir.join("src/chain.rs"), src).unwrap();
+
+        let mut s = Session::in_dir(&dir).unwrap();
+        let screen = detail_of(&mut s, &format!("deep{depth}"));
+        let text = note(&mut s, &screen, "4");
+        assert!(
+            text.lines().count() <= MAX_TREE_LINES + 2,
+            "uncapped: {} lines",
+            text.lines().count()
+        );
+        assert!(text.contains("more lines"), "no truncation marker: {text}");
+    }
+
+    #[test]
+    fn going_back_to_the_query_forgets_the_old_match_list() {
+        let mut s = session();
+        advance(&mut s, &Screen::Query, "failed to read input").unwrap();
+        advance(&mut s, &Screen::Matches, "b").unwrap();
+        assert!(s.matches.is_empty(), "a stale list survived going back");
+        assert!(s.query.is_empty());
+    }
+
+    #[test]
+    fn a_regex_character_query_still_finds_its_literal() {
+        // Not just "did not exit": the query must behave as a literal search.
+        // `escape()` is what makes this work, and this pins it.
+        let mut s = session();
+        match advance(&mut s, &Screen::Query, "unwrap(").unwrap() {
+            Step::Render(Screen::Matches) => {
+                assert!(!s.matches.is_empty(), "`unwrap(` occurs in the fixture");
+            }
+            Step::Note(msg) => assert!(msg.contains("nothing found"), "{msg}"),
+            other => panic!("unexpected {other:?}"),
+        }
+        // A pattern that would match everything if it were not escaped.
+        match advance(&mut s, &Screen::Query, ".*").unwrap() {
+            Step::Note(msg) => assert!(
+                msg.contains("nothing found"),
+                "`.*` matched as a regex: {msg}"
+            ),
+            other => panic!("`.*` should not match a literal-free fixture, got {other:?}"),
+        }
     }
 }
