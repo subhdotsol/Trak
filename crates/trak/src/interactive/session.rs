@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use trak_core::{Function, Repository, Result, SourceFiles};
 
 use crate::commands::relevant::Emission;
@@ -22,8 +20,10 @@ impl Session {
         Session::from_repo(Repository::discover()?)
     }
 
-    /// Open a session rooted at `dir`.
-    pub fn in_dir(dir: &Path) -> Result<Session> {
+    /// Open a session rooted at `dir`. Used by the tests, which must not depend
+    /// on the process's working directory.
+    #[cfg(test)]
+    pub fn in_dir(dir: &std::path::Path) -> Result<Session> {
         Session::from_repo(Repository::from_dir(dir)?)
     }
 

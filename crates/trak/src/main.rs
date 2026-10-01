@@ -9,7 +9,12 @@ fn main() {
     sigpipe::reset();
     let cli = Cli::parse();
 
-    if let Err(error) = commands::run(cli.command) {
+    let result = match cli.command {
+        Some(command) => commands::run(command),
+        None => interactive::run(),
+    };
+
+    if let Err(error) = result {
         eprintln!("error: {error}");
         std::process::exit(1);
     }
