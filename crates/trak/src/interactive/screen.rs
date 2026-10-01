@@ -96,15 +96,17 @@ fn query_input(session: &mut Session, input: &str) -> Result<Step> {
     if defined.len() > 1 {
         session.query = input.to_string();
         session.outside = 0;
-        session.matches = defined
-            .into_iter()
-            .map(|function| Emission {
-                file: function.file.clone(),
-                line: function.line,
-                text: function.signature.clone(),
-                function,
-            })
-            .collect();
+        session.matches = by_location(
+            defined
+                .into_iter()
+                .map(|function| Emission {
+                    file: function.file.clone(),
+                    line: function.line,
+                    text: function.signature.clone(),
+                    function,
+                })
+                .collect(),
+        );
         return Ok(Step::Render(Screen::Matches));
     }
 
@@ -116,7 +118,7 @@ fn query_input(session: &mut Session, input: &str) -> Result<Step> {
     if !found.emissions.is_empty() {
         session.query = input.to_string();
         session.outside = found.outside.len();
-        session.matches = found.emissions;
+        session.matches = by_location(found.emissions);
         return Ok(Step::Render(Screen::Matches));
     }
 
@@ -186,6 +188,18 @@ fn render_matches(session: &Session) -> String {
         ));
     }
     out
+}
+
+/// Put a result set into a stable order.
+///
+/// `trak_search::search` walks the repository in parallel, so hits arrive in
+/// whatever order the threads finish. Here the number beside an entry is how the
+/// user selects it, so an unordered list means two runs of the same query
+/// disagree about what `1` refers to. Sorted by location, the same way
+/// `trak_analysis::callers` orders its own output.
+fn by_location(mut emissions: Vec<Emission>) -> Vec<Emission> {
+    emissions.sort_by(|a, b| a.file.cmp(&b.file).then(a.line.cmp(&b.line)));
+    emissions
 }
 
 /// Trim a rendered tree to [`MAX_TREE_LINES`], noting what was cut.
@@ -771,6 +785,62 @@ mod tests {
                 "`.*` matched as a regex: {msg}"
             ),
             other => panic!("`.*` should not match a literal-free fixture, got {other:?}"),
+        }
+    }
+    #[test]
+    fn the_match_list_is_ordered_by_location() {
+        // `search` walks in parallel, so hits arrive in thread-completion order.
+        // The number is the selector here, so the list has to be stable or two
+        // runs of one query disagree about what `1` means.
+        let unsorted = vec![
+            emission("z.rs", 10),
+            emission("a.rs", 20),
+            emission("a.rs", 2),
+        ];
+        let ordered = by_location(unsorted);
+        let shape: Vec<(String, usize)> = ordered
+            .iter()
+            .map(|e| (e.file.display().to_string(), e.line))
+            .collect();
+        assert_eq!(
+            shape,
+            vec![
+                ("a.rs".to_string(), 2),
+                ("a.rs".to_string(), 20),
+                ("z.rs".to_string(), 10),
+            ]
+        );
+    }
+
+    fn emission(file: &str, line: usize) -> Emission {
+        Emission {
+            function: Function {
+                name: format!("f{line}"),
+                file: std::path::PathBuf::from(file),
+                line,
+                end_line: line + 1,
+                signature: String::new(),
+                params: Vec::new(),
+                calls: Vec::new(),
+            },
+            file: std::path::PathBuf::from(file),
+            line,
+            text: String::new(),
+        }
+    }
+
+    #[test]
+    fn repeating_a_query_gives_the_same_numbering() {
+        let dir = fixture_copy("messages");
+        let first = {
+            let mut s = Session::in_dir(&dir).unwrap();
+            advance(&mut s, &Screen::Query, "failed to read input").unwrap();
+            render(&mut s, &Screen::Matches).unwrap()
+        };
+        for _ in 0..5 {
+            let mut s = Session::in_dir(&dir).unwrap();
+            advance(&mut s, &Screen::Query, "failed to read input").unwrap();
+            assert_eq!(render(&mut s, &Screen::Matches).unwrap(), first);
         }
     }
 }
