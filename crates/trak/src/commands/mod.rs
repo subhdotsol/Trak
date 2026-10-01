@@ -12,7 +12,7 @@ mod open;
 mod panic;
 mod path;
 mod refs;
-mod relevant;
+pub(crate) mod relevant;
 mod search;
 mod symbol;
 
