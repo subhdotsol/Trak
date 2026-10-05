@@ -1,12 +1,18 @@
-use trak_analysis::function_by_name;
+use trak_analysis::{callee_tree, function_by_name};
 use trak_core::{Error, Repository};
 use trak_rust::functions;
 
-pub fn run(name: &str, format: trak_output::Format) -> Result<(), Error> {
+pub fn run(name: &str, format: trak_output::Format, tree: bool) -> Result<(), Error> {
     let repo = Repository::discover()?;
     let all = functions(&repo)?;
     let f = function_by_name(&all, name)
         .ok_or_else(|| Error::NotFound(format!("function `{name}`")))?;
+
+    if tree {
+        println!("{name}");
+        print!("{}", callee_tree(&all, name));
+        return Ok(());
+    }
 
     let mut report = trak_output::Report::new(format!("calls of `{name}`"));
     report.summary(format!("{} call(s)", f.calls.len()));

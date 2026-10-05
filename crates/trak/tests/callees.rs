@@ -80,3 +80,23 @@ fn name_collisions_with_std_do_not_leak_into_calls() {
         );
     }
 }
+
+#[test]
+fn tree_lists_descendants() {
+    let out = run_in("calls", &["calls", "main", "--tree"]);
+    assert!(success(&out), "stderr: {}", common::stderr(&out));
+    let text = stdout(&out);
+    assert!(text.contains("main"), "{text}");
+    assert!(text.contains("└─ parse"), "{text}");
+    assert!(text.contains("└─ validate"), "{text}");
+}
+
+#[test]
+fn tree_mirrors_the_callers_direction() {
+    // `callers --tree` walks up, `calls --tree` walks down, and the same chain
+    // should appear reversed.
+    let down = stdout(&run_in("calls", &["calls", "main", "--tree"]));
+    let up = stdout(&run_in("calls", &["callers", "validate", "--tree"]));
+    assert!(down.contains("parse"), "{down}");
+    assert!(up.contains("parse"), "{up}");
+}

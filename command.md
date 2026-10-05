@@ -18,7 +18,8 @@ trak <command> <args...>
 | `search` | Which lines mention this text? | `trak search discover` |
 | `symbol` | Where is this symbol declared? | `trak symbol discover` |
 | `fn` | Show a function: definition + what it calls | `trak fn discover` |
-| `calls` | What does this function call? | `trak calls discover` |
+| `calls` | What does this function call? (`--tree` for forward tree) | `trak calls discover` |
+| `calls --tree` | Full callees hierarchy as a tree | `trak calls discover --tree` |
 | `callers` | Which functions call it? (`--tree` for reverse tree) | `trak callers from_dir` |
 | `callers --tree` | Full callers hierarchy as a tree | `trak callers from_dir --tree` |
 | `path` | Is there a call chain A→…→B? Or the route to a log message? | `trak path main discover` |
@@ -126,9 +127,18 @@ What you'll get: only repo-defined callees:
 discover → from_dir
 ```
 
-Args / flags: `<name>` (required) · `--format`.
+Args / flags: `<name>` (required) · `--format` · `--tree`.
 
 A leaf function (nothing repo-defined to call) shows `0 calls.`
+
+With `--tree`, the whole forward hierarchy instead of one level — the mirror of
+`callers --tree`:
+
+```
+discover
+└─ from_dir
+   └─ display_path
+```
 
 ## 5. callers — who calls this function
 

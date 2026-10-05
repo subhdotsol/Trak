@@ -26,7 +26,7 @@ pub fn run(command: Commands) -> Result<()> {
         Commands::Symbol { name, format } => symbol::run(&name, format.into()),
         Commands::Fn { name, format } => function::run(&name, format.into()),
         Commands::Callers { name, format, tree } => callers::run(&name, format.into(), tree),
-        Commands::Calls { name, format } => calls::run(&name, format.into()),
+        Commands::Calls { name, format, tree } => calls::run(&name, format.into(), tree),
         Commands::Path { from, to, format } => path::run(&from, &to, format.into()),
         Commands::Refs { name, format } => refs::run(&name, format.into()),
         Commands::Impact { name, format } => impact::run(&name, format.into()),
