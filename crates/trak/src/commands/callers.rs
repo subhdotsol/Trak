@@ -1,6 +1,4 @@
-use std::collections::HashSet;
-
-use trak_analysis::callers;
+use trak_analysis::{caller_tree, callers};
 use trak_core::{Error, Repository};
 use trak_rust::functions;
 
@@ -11,8 +9,7 @@ pub fn run(name: &str, format: trak_output::Format, tree: bool) -> Result<(), Er
 
     if tree {
         println!("{name}");
-        let mut visited = HashSet::new();
-        print_tree(&all, name, "", &mut visited);
+        print!("{}", caller_tree(&all, name));
         return Ok(());
     }
 
@@ -36,25 +33,4 @@ pub fn run(name: &str, format: trak_output::Format, tree: bool) -> Result<(), Er
     }
     print!("{}", report.render(format));
     Ok(())
-}
-
-fn print_tree(
-    functions: &[trak_core::Function],
-    name: &str,
-    prefix: &str,
-    visited: &mut HashSet<String>,
-) {
-    let callers = callers(functions, name);
-    let pending: Vec<_> = callers
-        .iter()
-        .filter(|c| visited.insert(c.name.clone()))
-        .collect();
-    let total = pending.len();
-    for (i, caller) in pending.into_iter().enumerate() {
-        let last = i + 1 == total;
-        let branch = if last { "└─ " } else { "├─ " };
-        println!("{prefix}{branch}{}", caller.name);
-        let child_prefix = format!("{prefix}{}", if last { "   " } else { "│  " });
-        print_tree(functions, &caller.name, &child_prefix, visited);
-    }
 }

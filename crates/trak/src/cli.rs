@@ -78,6 +78,10 @@ pub enum Commands {
 
         #[arg(long, value_enum, default_value = "terminal")]
         format: OutputFormat,
+
+        /// Render the forward call tree instead
+        #[arg(long)]
+        tree: bool,
     },
     /// Find a path between functions
     Path {

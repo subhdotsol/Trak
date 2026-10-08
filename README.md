@@ -62,6 +62,7 @@ trak architecture           # overview of structs, functions, and crates
 trak fn main                # signature, parameters, and calls of main
 trak callers parse --tree   # reverse call tree up to main
 trak calls parse            # functions that parse calls
+trak calls parse --tree     # forward call tree below parse
 trak path start_fn end_fn   # shortest call path between two functions
 trak path main "no such user" # shortest call path to the function logging that
 trak impact validate        # everything affected by changing validate
@@ -93,6 +94,7 @@ show up as edges, even when the repository happens to define its own `trim`.
 | `callers <name>` | Find functions that call this function |
 | `callers <name> --tree` | Render the reverse call tree instead |
 | `calls <name>` | Find the functions called by this function |
+| `calls <name> --tree` | Render the forward call tree instead |
 | `path <from> <to>` | Find the shortest call path between two functions, or to a log message |
 | `refs <name>` | Find every reference to a symbol |
 | `impact <name>` | Analyze what changing a function would affect |
