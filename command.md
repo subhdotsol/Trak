@@ -314,16 +314,29 @@ What you'll get: the current uncommitted diff.
 
 Args / flags: **(none)** — terminal only.
 
-## 15. open — jump to a symbol in your editor
+## 15. open — jump to a symbol or file in your editor
 
 ```sh
 trak open discover
+trak open crates/trak/src/main.rs:25   # file at a line
+trak open crates/trak/src/main.rs:25:4 # file at a line and column
 ```
 
-What you'll get: opens the editor (from `TRAK_EDITOR`, else `EDITOR`, else a
-discovered editor: VS Code, Zed, Neovim, Vim) at the symbol's line.
+What you'll get: resolves the argument to a location and opens the editor,
+preferring the window you are already using. A symbol or function name (say,
+`discover`) resolves to its definition; a path opens the file itself, jumping
+to `line` (or `line:col`) when given. The editor is chosen from, in order:
 
-Args: `<name>` (required).
+1. `TRAK_EDITOR` — an explicit override, possibly with arguments (`zed --wait`).
+2. The editor trak is running inside — `$ZED_TERM`, `$NVIM`, `$TERM_PROGRAM`,
+   or the parent process tree.
+3. `$VISUAL`, then `$EDITOR`.
+4. An installed CLI: Zed, VS Code / Cursor, Neovim, Vim, Helix.
+
+So from a Zed terminal, `trak open` reuses the open Zed window instead of
+spawning VS Code or a new editor.
+
+Args: `<name>` (required) — a symbol, function, or `path[:line[:col]]`.
 
 ---
 

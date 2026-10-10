@@ -146,9 +146,9 @@ pub enum Commands {
     },
     /// Open an interactive session
     Interactive,
-    /// Open a symbol or function in your editor
+    /// Open a symbol, function, or file location in your editor
     Open {
-        /// Symbol or function name
+        /// Symbol or function name, or a `path`, `path:line`, or `path:line:col`
         name: String,
     },
 }

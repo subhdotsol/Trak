@@ -93,7 +93,17 @@ impl Editor {
 
     /// Open `file` at `line`, preferring the running instance of the editor.
     pub fn open(&self, file: &str, line: usize) -> std::io::Result<()> {
-        let (program, args) = self.command(file, line);
+        self.open_at(file, line, None)
+    }
+
+    /// Open `file` at `line`, optionally landing at `col`. GUI editors can aim
+    /// at a column (`path:line:col`); terminal editors still jump to the line.
+    pub fn open_at(&self, file: &str, line: usize, col: Option<usize>) -> std::io::Result<()> {
+        let loc = match col {
+            Some(col) => format!("{file}:{line}:{col}"),
+            None => format!("{file}:{line}"),
+        };
+        let (program, args) = self.command(file, line, &loc);
         if self.gui {
             std::process::Command::new(&program)
                 .args(&args)
@@ -107,13 +117,18 @@ impl Editor {
         }
     }
 
-    fn command(&self, file: &str, line: usize) -> (String, Vec<String>) {
-        let loc = format!("{file}:{line}");
+    fn command(&self, file: &str, line: usize, loc: &str) -> (String, Vec<String>) {
         match self.kind {
             // `--existing` reuses the currently open Zed window.
-            Kind::Zed => (self.program.clone(), vec!["--existing".into(), loc]),
+            Kind::Zed => (
+                self.program.clone(),
+                vec!["--existing".into(), loc.to_string()],
+            ),
             // `-r` reuses a window, `-g` jumps to the line.
-            Kind::VsCode => (self.program.clone(), vec!["-r".into(), "-g".into(), loc]),
+            Kind::VsCode => (
+                self.program.clone(),
+                vec!["-r".into(), "-g".into(), loc.to_string()],
+            ),
             // If Neovim is already running, ask that instance to open the file.
             Kind::Neovim => {
                 if let Ok(server) = std::env::var("NVIM") {
@@ -139,7 +154,7 @@ impl Editor {
                 let program = parts.next().unwrap_or("vi").to_string();
                 let mut args: Vec<String> = parts.map(String::from).collect();
                 if self.gui {
-                    args.push(loc);
+                    args.push(loc.to_string());
                 } else {
                     args.push(format!("+{line}"));
                     args.push(file.to_string());

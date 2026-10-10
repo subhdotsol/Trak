@@ -145,7 +145,7 @@ The repository is parsed once per session rather than once per command.
 | `log <message>` | Find where a log message originates |
 | `error <message>` | Find where an error message originates |
 | `panic <message>` | Find where a panic message originates |
-| `open <name>` | Open a symbol or function in your editor |
+| `open <name>` | Open a symbol, function, or `path[:line[:col]]` in your editor |
 
 ### Output formats
 
@@ -160,11 +160,15 @@ The `architecture`, `history`, `blame`, `diff`, `relevant`, `log`, `error`, `pan
 
 ### Editing
 
-`trak open <name>` resolves the symbol to a `file:line` location and launches your editor. The editor is chosen from, in order:
+`trak open` takes either a symbol or function name, or a file location:
+`path`, `path:line`, or `path:line:col` (e.g. `trak open crates/trak/src/main.rs:25`). It resolves the location and launches your editor. The editor is chosen from, in order:
 
-1. The `TRAK_EDITOR` environment variable.
-2. The `EDITOR` environment variable.
-3. A detected editor: VS Code, Zed, Neovim, or Vim.
+1. The `TRAK_EDITOR` environment variable — an explicit per-run override that may include arguments (e.g. `zed --wait`).
+2. The editor you are already running in — detected from `$ZED_TERM`, `$NVIM`, `$TERM_PROGRAM` (VS Code / Cursor), or by walking the parent process tree.
+3. The `$VISUAL` / `$EDITOR` environment variables.
+4. An installed editor CLI, tried in this order: Zed, VS Code / Cursor, Neovim, Vim, Helix.
+
+Opening prefers the editor's existing instance so the file shows up in the same window rather than a new one: Zed launches with `--existing`, VS Code / Cursor with `-r`, and Neovim reuses a running server when `$NVIM` is set.
 
 ## Project layout
 
