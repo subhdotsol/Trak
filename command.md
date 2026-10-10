@@ -31,6 +31,7 @@ trak <command> <args...>
 | `blame` | Who changed a `file:line`? | `trak blame crates/trak-core/src/repo.rs:20` |
 | `diff` | Uncommitted working-tree changes | `trak diff` |
 | `open` | Open a symbol's location in your editor | `trak open discover` |
+| *(no command)* / `interactive` | Open an interactive session | `trak` |
 
 Formats available on data commands (`search`, `symbol`, `fn`, `calls`, `callers`, `path`,
 `refs`, `impact`, and `relevant`): `--format terminal` (default), `json`, `markdown`,
@@ -325,6 +326,53 @@ discovered editor: VS Code, Zed, Neovim, Vim) at the symbol's line.
 Args: `<name>` (required).
 
 ---
+
+## Interactive mode
+
+```sh
+trak
+```
+
+Three screens, one prompt each.
+
+**Query.** Type a function name to open it directly, or any other text to search
+for it. Resolution order is the same as `trak path`: a name the repository
+defines wins, and anything else is treated as a message. A match that sits
+outside every function — a `const`, a doc comment — reports where it is, because
+there is no call path leading to it.
+
+**Matches.** Numbered `[n] file:line  function()`, capped at 20; anything past
+that is reported as not selectable. The count is of *functions* — a message
+emitted twice in one function is one entry — and occurrences outside every
+function are counted on their own line, because nothing calls them. A name with
+more than one definition lands here too, rather than silently picking one.
+Enter a number to open it, `b` to go back, `q` to quit.
+
+**Detail.** The function's span, one level of callers, one level of callees, then:
+
+| Key | Shows |
+| --- | --- |
+| `1` | The function's source, numbered, capped at 60 lines |
+| `2` | Its immediate callers |
+| `3` | Its immediate callees |
+| `4` | The whole tree of callers, out to the entry point |
+| `5` | The whole tree of callees |
+| `6` | Opens the location in your editor |
+| `b` | Back to the match list, or to the query if there was none |
+| `q` | Quit |
+
+An action prints its output and leaves you on the detail screen, so you can run
+another without navigating back.
+
+A trace is capped at 200 lines, as `[1]` is capped at 60.
+
+Bare `trak` opens a session only when stdin is a terminal. Off a terminal it
+prints usage and exits non-zero, so a script or CI step that runs `trak` with no
+arguments fails fast rather than waiting on a prompt; `trak interactive` is the
+explicit entry point for a piped script.
+
+Interactive mode takes no flags and renders terminal text only; use the
+subcommands with `--format` for machine-readable output.
 
 ## Formats
 

@@ -30,7 +30,7 @@ impl From<OutputFormat> for trak_output::Format {
 )]
 pub struct Cli {
     #[command(subcommand)]
-    pub command: Commands,
+    pub command: Option<Commands>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -144,6 +144,8 @@ pub enum Commands {
         /// Panic message text
         message: String,
     },
+    /// Open an interactive session
+    Interactive,
     /// Open a symbol or function in your editor
     Open {
         /// Symbol or function name

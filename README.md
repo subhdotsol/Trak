@@ -11,6 +11,7 @@ Trak: find it. Follow it. Understand it.
 - Caller and callee tracking for any function
 - Shortest path between two functions in the call graph, or the path to the function that logged a message you paste from the terminal
 - Impact analysis: what breaks if you change a function
+- Interactive mode: run `trak` with no arguments to search, browse matches, and drill into callers and callees without retyping commands
 - Reference lookup for any symbol
 - Repository architecture overview
 - Built-in git integration: history, blame, and diff
@@ -83,6 +84,44 @@ use sibling::paint;             → sibling::paint(..)    edge
 
 So std and third-party calls (`unwrap`, `read_line`, `to_ascii_lowercase`) never
 show up as edges, even when the repository happens to define its own `trim`.
+
+### Interactive mode
+
+Run `trak` with no arguments to open a session:
+
+```sh
+trak
+```
+
+It asks what you are looking for. Type an error message, a log line, or a
+function name. A function name opens straight away; anything else is searched
+for, and the matches are listed with the function that contains each:
+
+```text
+Repository: Trak (78 files)
+What are you looking for?
+> failed to read input
+
+2 functions for `failed to read input`
+  [1] lib.rs:20   read_name()
+  [2] lib.rs:26   log_empty()
+> 1
+```
+
+The count is of functions, not occurrences: a message emitted twice inside one
+function is one entry. Occurrences that sit outside every function are counted
+separately, since nothing calls them.
+
+Bare `trak` opens a session only when stdin is a terminal; off a terminal it
+prints usage, so a script that ran `trak` with no arguments keeps failing fast.
+Use `trak interactive` to drive a session from a pipe.
+
+Choosing one shows where it lives, who calls it, what it calls, and a menu:
+show source, list callers or callees, trace either direction to the end of the
+graph, or open the location in your editor. `b` goes back, `q` quits, and so
+does Ctrl-D.
+
+The repository is parsed once per session rather than once per command.
 
 ## Command reference
 

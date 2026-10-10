@@ -12,7 +12,7 @@ mod open;
 mod panic;
 mod path;
 mod refs;
-mod relevant;
+pub(crate) mod relevant;
 mod search;
 mod symbol;
 
@@ -38,6 +38,7 @@ pub fn run(command: Commands) -> Result<()> {
         Commands::Log { message } => log::run(&message),
         Commands::Error { message } => error::run(&message),
         Commands::Panic { message } => panic::run(&message),
+        Commands::Interactive => crate::interactive::run(),
         Commands::Open { name } => open::run(&name),
     }
 }

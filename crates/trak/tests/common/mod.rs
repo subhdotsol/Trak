@@ -3,8 +3,9 @@
 //! Each run copies the fixture into a fresh temp directory so traversal
 //! cannot escape into the workspace's own `.git`.
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
@@ -28,6 +29,44 @@ pub fn run_in(dir: &str, args: &[&str]) -> Output {
         .current_dir(&work)
         .output()
         .expect("failed to run trak binary")
+}
+
+/// Run `trak args...` against a fresh copy of the named fixture, feeding
+/// `input` on stdin. `wait_with_output` closes stdin first, so the child sees
+/// EOF after the script.
+///
+/// This module is compiled into every integration test binary, and only the
+/// interactive tests drive stdin, so it is dead code in the others.
+#[allow(dead_code)]
+pub fn run_with_input(dir: &str, args: &[&str], input: &str) -> Output {
+    run_with_bytes(dir, args, input.as_bytes())
+}
+
+/// As [`run_with_input`], for a script that is not valid UTF-8.
+#[allow(dead_code)]
+pub fn run_with_bytes(dir: &str, args: &[&str], input: &[u8]) -> Output {
+    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+    let work = std::env::temp_dir().join(format!("trak-test-{}-{}-{id}", std::process::id(), dir));
+    let _ = std::fs::remove_dir_all(&work);
+    copy_dir(&fixture(dir), &work).expect("failed to copy fixture into temp dir");
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_trak"))
+        .args(args)
+        .current_dir(&work)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn trak binary");
+
+    child
+        .stdin
+        .as_mut()
+        .expect("stdin was piped")
+        .write_all(input)
+        .expect("failed to write the script to stdin");
+
+    child.wait_with_output().expect("failed to run trak binary")
 }
 
 fn copy_dir(src: &Path, dst: &Path) -> std::io::Result<()> {
