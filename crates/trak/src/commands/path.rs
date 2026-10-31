@@ -25,15 +25,18 @@ fn endpoints(repo: &Repository, all: &[Function], query: &str) -> Result<Vec<End
         }]);
     }
 
+    // A message quoted in docs or a comment is no reason to drop the functions
+    // that actually emit it, so occurrences outside a function only matter
+    // when nothing inside one matches.
     let matches = find_message(repo, all, query);
-    if let Some((file, line, _)) = matches.outside.first() {
-        return Err(Error::Other(format!(
-            "`{query}` is at {}:{}, outside any function",
-            repo.display_path(file),
-            line
-        )));
-    }
     if matches.emissions.is_empty() {
+        if let Some((file, line, _)) = matches.outside.first() {
+            return Err(Error::Other(format!(
+                "`{query}` is at {}:{}, outside any function",
+                repo.display_path(file),
+                line
+            )));
+        }
         return Err(Error::NotFound(format!("function or message `{query}`")));
     }
     Ok(matches

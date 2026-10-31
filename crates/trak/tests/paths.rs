@@ -72,6 +72,15 @@ fn unknown_message_is_an_error() {
 }
 
 #[test]
+fn a_message_quoted_in_docs_still_resolves_to_its_emitter() {
+    let out = run_in("quoted", &["path", "main", "disk is full: {path}"]);
+    assert!(success(&out), "stderr: {}", common::stderr(&out));
+    let text = stdout(&out);
+    assert!(text.contains("main → save → report_full"), "{text}");
+    assert!(text.contains("[message]"), "{text}");
+}
+
+#[test]
 fn message_outside_a_function_reports_its_location() {
     let out = run_in("messages", &["path", "main", "no such user on disk"]);
     assert!(!success(&out));

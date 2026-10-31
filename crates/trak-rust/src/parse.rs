@@ -725,9 +725,12 @@ impl Declared {
 
     /// Whether a path root names something this repository declares, making
     /// `Root::call(..)` a repository call and `std::io::stderr(..)` a foreign
-    /// one. A type root must be declared in the calling file to count.
+    /// one. A type root must be declared in the calling file to count, and
+    /// `Self` always names the repository type its `impl` block is written for.
     fn owns_root(&self, root: &str, file: usize) -> bool {
-        self.owns_crate_root(root) || self.types.contains(&(root.to_string(), file))
+        root == "Self"
+            || self.owns_crate_root(root)
+            || self.types.contains(&(root.to_string(), file))
     }
 
     /// Whether `root` is a crate, module or keyword path into this repository.
@@ -1394,6 +1397,7 @@ mod tests {
     fn associated_calls_on_repository_types_are_kept() {
         let declared = topcoat_like();
         assert_eq!(repo_calls("let s = Style::new();", &declared), ["new"]);
+        assert_eq!(repo_calls("Self::render(&start)", &declared), ["render"]);
     }
 
     #[test]

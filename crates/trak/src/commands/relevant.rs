@@ -24,12 +24,17 @@ pub struct MessageMatches {
 
 /// Search for a log or error message, falling back to a placeholder-tolerant
 /// pattern so a message typed as `failed to read input: {error}` still finds
-/// the call site that interpolates it as `failed to read input: {}`.
+/// the call site that interpolates it as `failed to read input: {}`. Both
+/// searches run, since a doc quoting the message verbatim must not hide the
+/// call site that interpolates it.
 fn locate(repo: &Repository, message: &str) -> Vec<(String, usize, String)> {
-    match search(repo, message) {
-        Ok(hits) if !hits.is_empty() => hits,
-        _ => search_message(repo, message).unwrap_or_default(),
+    let mut hits = search(repo, message).unwrap_or_default();
+    for hit in search_message(repo, message).unwrap_or_default() {
+        if !hits.iter().any(|seen| seen.0 == hit.0 && seen.1 == hit.1) {
+            hits.push(hit);
+        }
     }
+    hits
 }
 
 /// Locate `message` in the source and split the matches by whether a function
