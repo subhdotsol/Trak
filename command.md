@@ -384,8 +384,11 @@ Args / flags: **(none)** — terminal only.
 trak history from_dir
 ```
 
-What you'll get: one line per commit that touched the function's lines,
-newest first:
+What you'll get: one line per commit whose diff added or removed the text
+`<name>` anywhere in the repo, newest first (`git log --oneline -S <name>`).
+It is a plain-text, case-sensitive match, not tied to the function's lines, so
+a short or common name also picks up commits that only touched a comment or
+another symbol containing it:
 
 ```
 b8ec7a5 feat: add --tree to calls, mirroring callers --tree (#2)
