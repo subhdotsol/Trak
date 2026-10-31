@@ -1,5 +1,8 @@
 # Trak
 
+[![crates.io](https://img.shields.io/crates/v/trak.svg)](https://crates.io/crates/trak)
+[![license](https://img.shields.io/crates/l/trak.svg)](LICENSE)
+
 Trak is a local CLI tool for navigating and understanding unfamiliar Rust codebases. It helps you find symbols, follow callers and callees, trace code paths, and discover contextually related code. Instead of reading thousands of files or relying on AI, Trak shows you where to look and how the code connects.
 
 Trak: find it. Follow it. Understand it.
@@ -23,9 +26,16 @@ Trak: find it. Follow it. Understand it.
 
 Requirements:
 
-- Rust stable toolchain. Install via [rustup](https://rustup.rs/) if you do not have it.
+- Rust 1.88 or newer. Install via [rustup](https://rustup.rs/) if you do not have it.
 
-Steps:
+Install from crates.io:
+
+```sh
+cargo install trak
+trak --version
+```
+
+To build from source instead:
 
 1. Clone the repository.
 

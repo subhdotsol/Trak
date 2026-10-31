@@ -1,9 +1,15 @@
 [package]
 name = "trak-analysis"
+description = "Callers, callees, path finding, impact, and references for trak"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
-trak-core = {path = "../trak-core"}
+trak-core.workspace = true

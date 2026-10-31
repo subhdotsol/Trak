@@ -1,9 +1,15 @@
 [package]
 name = "trak-output"
+description = "Report model and terminal, JSON, Markdown, Mermaid, and DOT renderers for trak"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

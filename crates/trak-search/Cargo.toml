@@ -1,12 +1,18 @@
 [package]
 name = "trak-search"
+description = "Repository-wide text search for trak"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
-trak-core = {path = "../trak-core"}
+trak-core.workspace = true
 ignore = "0.4"
 grep-regex = "0.1"
 grep-searcher = "0.1"

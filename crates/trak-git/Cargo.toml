@@ -1,9 +1,15 @@
 [package]
 name = "trak-git"
+description = "Git history, blame, and diff integrations for trak"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
-trak-core = {path = "../trak-core"}
+trak-core.workspace = true

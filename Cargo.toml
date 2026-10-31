@@ -15,5 +15,19 @@ members =[
 [workspace.package]
 version="0.1.0"
 edition="2024"
+rust-version="1.88"
 license="MIT"
 repository="https://github.com/subhdotsol/trak"
+homepage="https://github.com/subhdotsol/trak"
+readme="README.md"
+keywords=["rust", "cli", "call-graph", "code-navigation", "static-analysis"]
+categories=["command-line-utilities", "development-tools"]
+
+[workspace.dependencies]
+trak-core = { path = "crates/trak-core", version = "0.1.0" }
+trak-rust = { path = "crates/trak-rust", version = "0.1.0" }
+trak-analysis = { path = "crates/trak-analysis", version = "0.1.0" }
+trak-search = { path = "crates/trak-search", version = "0.1.0" }
+trak-git = { path = "crates/trak-git", version = "0.1.0" }
+trak-output = { path = "crates/trak-output", version = "0.1.0" }
+trak-editor = { path = "crates/trak-editor", version = "0.1.0" }

@@ -1,8 +1,14 @@
 [package]
-name ="trak-core"
+name = "trak-core"
+description = "Repository discovery, file traversal, and the symbol model for trak"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
